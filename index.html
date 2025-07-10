@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moonshot Factory: GLTF to VRM Converter</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --secondary-color: #f5f7fa;
+            --text-color: #333;
+            --border-color: #dce1e6;
+            --success-color: #4caf50;
+            --error-color: #f44336;
+            --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            line-height: 1.6;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+        }
+
+        header {
+            background: var(--primary-color);
+            color: #fff;
+            padding: 1.5rem 2rem;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.8rem;
+        }
+        
+        header p {
+            margin: 0.5rem 0 0;
+            opacity: 0.9;
+        }
+
+        main {
+            padding: 2rem;
+        }
+
+        .wizard-step {
+            display: none;
+        }
+
+        .wizard-step.active {
+            display: block;
+        }
+
+        h2 {
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 0.5rem;
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            color: var(--primary-color);
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .form-group small {
+            display: block;
+            color: #777;
+            margin-top: -0.25rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        .bone-mapping-grid, .expression-mapping-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .bone-mapping-item, .expression-mapping-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .bone-mapping-item label, .expression-mapping-item label {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        
+        .required-field::after {
+            content: ' *';
+            color: var(--error-color);
+            font-weight: bold;
+        }
+
+        .button-group {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        
+        button:active {
+            transform: translateY(1px);
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: #fff;
+        }
+        
+        .btn-primary:hover {
+            background-color: #3a80d2;
+        }
+        
+        .btn-secondary {
+            background-color: #e0e0e0;
+            color: var(--text-color);
+        }
+        
+        .btn-secondary:hover {
+            background-color: #d0d0d0;
+        }
+        
+        .btn-success {
+            background-color: var(--success-color);
+            color: #fff;
+        }
+        
+        .btn-success:hover {
+            background-color: #388e3c;
+        }
+        
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #file-upload-section {
+            text-align: center;
+        }
+
+        #file-upload-label {
+            display: inline-block;
+            padding: 1rem 2rem;
+            background: var(--primary-color);
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1.1rem;
+        }
+        
+        #file-upload-label:hover {
+            background-color: #3a80d2;
+        }
+
+        #file-upload {
+            display: none;
+        }
+        
+        #file-name {
+            margin-top: 1rem;
+            font-style: italic;
+            color: #555;
+        }
+
+        #status-log {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: #f0f0f0;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>GLTF to VRM Converter</h1>
+            <p>Upload a GLTF 2.0 model and follow the steps to convert it into a VRM 1.0 file.</p>
+        </header>
+        <main>
+            <div id="wizard-container">
+                <!-- Step 1: File Upload -->
+                <div id="step-1" class="wizard-step active">
+                    <h2>Step 1: Upload Model</h2>
+                    <div id="file-upload-section">
+                        <input type="file" id="file-upload" accept=".glb">
+                        <label for="file-upload" id="file-upload-label">Select .glb File</label>
+                        <p id="file-name">No file selected.</p>
+                    </div>
+                    <div class="button-group">
+                        <span></span>
+                        <button id="next-to-step-2" class="btn-primary" disabled>Next</button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Metadata -->
+                <div id="step-2" class="wizard-step">
+                    <h2>Step 2: Metadata</h2>
+                    <div class="form-group">
+                        <label for="meta-name" class="required-field">Model Name</label>
+                        <input type="text" id="meta-name" placeholder="e.g., My Awesome Avatar">
+                    </div>
+                    <div class="form-group">
+                        <label for="meta-author" class="required-field">Author</label>
+                        <input type="text" id="meta-author" placeholder="e.g., Your Name">
+                    </div>
+                    <div class="form-group">
+                        <label for="meta-license">License</label>
+                        <small>Select the license that best fits your model.</small>
+                        <select id="meta-license">
+                            <option value="https://vrm.dev/licenses/1.0/">VRM Community License 1.0</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Permissions</label>
+                        <small>Define who is allowed to use this avatar.</small>
+                        <select id="meta-avatarPermission">
+                            <option value="onlyAuthor">Only the Author</option>
+                            <option value="onlySeparatelyLicensedPerson">Explicitly Licensed Person</option>
+                            <option value="everyone">Everyone</option>
+                        </select>
+                    </div>
+                    <div class="button-group">
+                        <button id="prev-to-step-1" class="btn-secondary">Previous</button>
+                        <button id="next-to-step-3" class="btn-primary">Next</button>
+                    </div>
+                </div>
+
+                <!-- Step 3: Humanoid Bone Mapping -->
+                <div id="step-3" class="wizard-step">
+                    <h2>Step 3: Humanoid Bone Mapping</h2>
+                    <p>Map your model's bones to the VRM standard. The dropdown only contains bones used by the model's skin. The **Hips** bone is the most important, as it defines the root of the skeleton.</p>
+                    <div id="bone-mapping-grid" class="bone-mapping-grid">
+                        <!-- Bone mapping fields will be generated here by JS -->
+                    </div>
+                    <div class="button-group">
+                        <button id="prev-to-step-2" class="btn-secondary">Previous</button>
+                        <button id="next-to-step-4" class="btn-primary">Next</button>
+                    </div>
+                </div>
+                
+                <!-- Step 4: Expression Mapping -->
+                <div id="step-4" class="wizard-step">
+                    <h2>Step 4: Expression Mapping (Blend Shapes)</h2>
+                    <p>Map your model's blend shapes (morph targets) to standard VRM expressions.</p>
+                    <div id="expression-mapping-grid" class="expression-mapping-grid">
+                        <!-- Expression mapping fields will be generated here by JS -->
+                    </div>
+                     <div class="button-group">
+                        <button id="prev-to-step-3" class="btn-secondary">Previous</button>
+                        <button id="convert-and-download" class="btn-success">Convert & Download</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="status-log-container">
+                <h3>Log</h3>
+                <div id="status-log">Welcome! Select a file to begin.</div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- STATE MANAGEMENT ---
+            let gltfJson = null;
+            let gltfBuffer = null;
+            let nodeNames = {};
+            let morphTargetNames = [];
+
+            // --- DOM ELEMENTS ---
+            const fileInput = document.getElementById('file-upload');
+            const fileNameDisplay = document.getElementById('file-name');
+            const statusLog = document.getElementById('status-log');
+            const wizardSteps = document.querySelectorAll('.wizard-step');
+            const nextBtn2 = document.getElementById('next-to-step-2');
+            const prevBtn1 = document.getElementById('prev-to-step-1');
+            const nextBtn3 = document.getElementById('next-to-step-3');
+            const prevBtn2 = document.getElementById('prev-to-step-2');
+            const nextBtn4 = document.getElementById('next-to-step-4');
+            const prevBtn3 = document.getElementById('prev-to-step-3');
+            const convertBtn = document.getElementById('convert-and-download');
+            const boneMappingGrid = document.getElementById('bone-mapping-grid');
+            const expressionMappingGrid = document.getElementById('expression-mapping-grid');
+
+            // --- CONSTANTS ---
+            const VRM_HUMANOID_BONES = [
+                { name: 'hips', required: true }, { name: 'spine', required: true }, 
+                { name: 'chest', required: false }, { name: 'upperChest', required: false }, 
+                { name: 'neck', required: false }, { name: 'head', required: true },
+                { name: 'leftEye', required: false }, { name: 'rightEye', required: false },
+                { name: 'leftUpperArm', required: true }, { name: 'leftLowerArm', required: true },
+                { name: 'leftHand', required: true }, { name: 'rightUpperArm', required: true },
+                { name: 'rightLowerArm', required: true }, { name: 'rightHand', required: true },
+                { name: 'leftUpperLeg', required: true }, { name: 'leftLowerLeg', required: true },
+                { name: 'leftFoot', required: true }, { name: 'rightUpperLeg', required: true },
+                { name: 'rightLowerLeg', required: true }, { name: 'rightFoot', required: true },
+                { name: 'leftToes', required: false }, { name: 'rightToes', required: false },
+                { name: 'leftShoulder', required: false }, { name: 'rightShoulder', required: false },
+                { name: 'leftThumbMetacarpal', required: false }, { name: 'leftThumbProximal', required: false },
+                { name: 'leftThumbDistal', required: false }, { name: 'leftIndexProximal', required: false },
+                { name: 'leftIndexIntermediate', required: false }, { name: 'leftIndexDistal', required: false },
+                { name: 'leftMiddleProximal', required: false }, { name: 'leftMiddleIntermediate', required: false },
+                { name: 'leftMiddleDistal', required: false }, { name: 'leftRingProximal', required: false },
+                { name: 'leftRingIntermediate', required: false }, { name: 'leftRingDistal', required: false },
+                { name: 'leftLittleProximal', required: false }, { name: 'leftLittleIntermediate', required: false },
+                { name: 'leftLittleDistal', required: false }, { name: 'rightThumbMetacarpal', required: false },
+                { name: 'rightThumbProximal', required: false }, { name: 'rightThumbDistal', required: false },
+                { name: 'rightIndexProximal', required: false }, { name: 'rightIndexIntermediate', required: false },
+                { name: 'rightIndexDistal', required: false }, { name: 'rightMiddleProximal', required: false },
+                { name: 'rightMiddleIntermediate', required: false }, { name: 'rightMiddleDistal', required: false },
+                { name: 'rightRingProximal', required: false }, { name: 'rightRingIntermediate', required: false },
+                { name: 'rightRingDistal', required: false }, { name: 'rightLittleProximal', required: false },
+                { name: 'rightLittleIntermediate', required: false }, { name: 'rightLittleDistal', required: false }
+            ];
+            const VRM_PRESET_EXPRESSIONS = ['happy', 'sad', 'angry', 'relaxed', 'surprised', 'aa', 'ii', 'uu', 'ee', 'oo', 'blink', 'blinkLeft', 'blinkRight', 'neutral'];
+
+            // --- ATTACH EVENT LISTENERS ---
+            nextBtn2.addEventListener('click', () => goToStep(2));
+            prevBtn1.addEventListener('click', () => goToStep(1));
+            nextBtn3.addEventListener('click', () => goToStep(3));
+            prevBtn2.addEventListener('click', () => goToStep(2));
+            nextBtn4.addEventListener('click', () => goToStep(4));
+            prevBtn3.addEventListener('click', () => goToStep(3));
+            convertBtn.addEventListener('click', convertAndDownload);
+            fileInput.addEventListener('change', handleFileSelect);
+
+            // --- FUNCTION DEFINITIONS ---
+
+            function log(message, isError = false) {
+                const logEntry = document.createElement('div');
+                logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                if (isError) logEntry.style.color = 'var(--error-color)';
+                statusLog.appendChild(logEntry);
+                statusLog.scrollTop = statusLog.scrollHeight;
+            }
+
+            function goToStep(step) {
+                wizardSteps.forEach(s => s.classList.remove('active'));
+                document.getElementById(`step-${step}`).classList.add('active');
+            }
+
+            function handleFileSelect(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                if (!file.name.toLowerCase().endsWith('.glb')) {
+                    log('Error: Please upload a .glb file.', true);
+                    return;
+                }
+                fileNameDisplay.textContent = file.name;
+                log(`Selected file: ${file.name}`);
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        parseGlb(e.target.result);
+                        nextBtn2.disabled = false;
+                        log('GLB file parsed successfully.');
+                    } catch (error) {
+                        log(`Error parsing GLB: ${error.message}`, true);
+                        nextBtn2.disabled = true;
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            }
+
+            function parseGlb(arrayBuffer) {
+                const dataView = new DataView(arrayBuffer);
+                if (dataView.getUint32(0, true) !== 0x46546C67) throw new Error('Not a valid GLB file.');
+                if (dataView.getUint32(4, true) !== 2) throw new Error('Only GLB version 2 is supported.');
+                let chunkOffset = 12;
+                const jsonChunkLength = dataView.getUint32(chunkOffset, true);
+                if (dataView.getUint32(chunkOffset + 4, true) !== 0x4E4F534A) throw new Error('First chunk is not JSON.');
+                const jsonChunkData = new Uint8Array(arrayBuffer, chunkOffset + 8, jsonChunkLength);
+                gltfJson = JSON.parse(new TextDecoder('utf-8').decode(jsonChunkData));
+                chunkOffset += 8 + jsonChunkLength;
+                if (chunkOffset < dataView.byteLength) {
+                    const binChunkLength = dataView.getUint32(chunkOffset, true);
+                    if (dataView.getUint32(chunkOffset + 4, true) !== 0x004E4942) throw new Error('Expected BIN chunk after JSON.');
+                    gltfBuffer = arrayBuffer.slice(chunkOffset + 8, chunkOffset + 8 + binChunkLength);
+                } else {
+                    gltfBuffer = null;
+                }
+                populateUIFromGltf();
+            }
+
+            function populateUIFromGltf() {
+                if (!gltfJson) return;
+                
+                // *** Smarter Bone Filtering: Only show nodes that are part of a skin ***
+                nodeNames = {};
+                const jointIndices = new Set();
+                if (gltfJson.skins) {
+                    gltfJson.skins.forEach(skin => skin.joints.forEach(jointIndex => jointIndices.add(jointIndex)));
+                } else {
+                    log("Warning: No skins found in GLTF. The model may not be rigged.", true);
+                }
+
+                if (gltfJson.nodes) {
+                    if (jointIndices.size > 0) {
+                        jointIndices.forEach(index => {
+                            nodeNames[index] = gltfJson.nodes[index].name || `Node ${index}`;
+                        });
+                        log(`Found ${jointIndices.size} bones from skins to map.`);
+                    } else {
+                        // Fallback for models without skins but with nodes
+                        gltfJson.nodes.forEach((node, index) => {
+                            nodeNames[index] = node.name || `Node ${index}`;
+                        });
+                        log(`No skins found. Listing all ${Object.keys(nodeNames).length} nodes as potential bones.`);
+                    }
+                }
+
+                boneMappingGrid.innerHTML = '';
+                VRM_HUMANOID_BONES.forEach(bone => {
+                    const item = document.createElement('div');
+                    item.className = 'bone-mapping-item';
+                    const label = document.createElement('label');
+                    label.htmlFor = `bone-${bone.name}`;
+                    label.textContent = bone.name.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                    if (bone.required) label.classList.add('required-field');
+                    const select = document.createElement('select');
+                    select.id = `bone-${bone.name}`;
+                    select.dataset.vrmBone = bone.name;
+                    select.innerHTML = `<option value="">--- Not Assigned ---</option>` +
+                        Object.entries(nodeNames).map(([index, name]) => `<option value="${index}">${name}</option>`).join('');
+                    item.append(label, select);
+                    boneMappingGrid.appendChild(item);
+                });
+
+                morphTargetNames = [];
+                if (gltfJson.meshes) {
+                    for (const mesh of gltfJson.meshes) {
+                        if (mesh.primitives?.[0].extras?.targetNames) {
+                            morphTargetNames = mesh.primitives[0].extras.targetNames;
+                            log(`Found ${morphTargetNames.length} morph targets: ${morphTargetNames.join(', ')}`);
+                            break;
+                        }
+                    }
+                }
+                if (morphTargetNames.length === 0) log('No morph targets (blend shapes) found.');
+                expressionMappingGrid.innerHTML = '';
+                VRM_PRESET_EXPRESSIONS.forEach(preset => {
+                    const item = document.createElement('div');
+                    item.className = 'expression-mapping-item';
+                    const label = document.createElement('label');
+                    label.htmlFor = `expr-${preset}`;
+                    label.textContent = preset.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+                    const select = document.createElement('select');
+                    select.id = `expr-${preset}`;
+                    select.dataset.vrmExpression = preset;
+                    select.innerHTML = `<option value="">--- Not Assigned ---</option>` +
+                        morphTargetNames.map((name, index) => `<option value="${index}">${name}</option>`).join('');
+                    item.append(label, select);
+                    expressionMappingGrid.appendChild(item);
+                });
+            }
+
+            function buildVrmExtension() {
+                const humanBones = {};
+                boneMappingGrid.querySelectorAll('select').forEach(select => {
+                    if (select.value) humanBones[select.dataset.vrmBone] = { node: parseInt(select.value, 10) };
+                });
+                for (const bone of VRM_HUMANOID_BONES) {
+                    if (bone.required && !humanBones[bone.name]) throw new Error(`Required bone "${bone.name}" is not assigned.`);
+                }
+                const presetExpressions = {};
+                expressionMappingGrid.querySelectorAll('select').forEach(select => {
+                    if (select.value) {
+                        const presetName = select.dataset.vrmExpression;
+                        const morphIndex = parseInt(select.value, 10);
+                        let meshNodeIndex = -1;
+                        if (gltfJson.nodes) {
+                            meshNodeIndex = gltfJson.nodes.findIndex(node => node.mesh !== undefined && gltfJson.meshes[node.mesh]?.primitives?.[0].extras?.targetNames);
+                        }
+                        if (meshNodeIndex === -1) {
+                            log(`Warning: Could not find a mesh node for expression ${presetName}. Skipping.`, true);
+                            return;
+                        }
+                        presetExpressions[presetName] = {
+                            morphTargetBinds: [{ node: meshNodeIndex, index: morphIndex, weight: 1.0 }],
+                            isBinary: false, overrideBlink: 'none', overrideLookAt: 'none', overrideMouth: 'none',
+                        };
+                    }
+                });
+                return {
+                    specVersion: "1.0",
+                    meta: {
+                        name: document.getElementById('meta-name').value || 'Unnamed',
+                        version: "1.0",
+                        authors: [document.getElementById('meta-author').value || 'Unknown'],
+                        licenseUrl: document.getElementById('meta-license').value,
+                        avatarPermission: document.getElementById('meta-avatarPermission').value,
+                        allowExcessivelyViolentUsage: false, allowExcessivelySexualUsage: false, commercialUsage: "personal",
+                        allowPoliticalOrReligiousUsage: false, allowAntisocialOrHateUsage: false, creditNotation: "required",
+                        allowRedistribution: false, modification: "prohibited",
+                    },
+                    humanoid: { humanBones },
+                    firstPerson: { meshAnnotations: [] },
+                    lookAt: {
+                        offsetFromHeadBone: [0, 0.06, 0], type: "bone",
+                        rangeMapHorizontalInner: { inputMaxValue: 90.0, outputScale: 10.0 },
+                        rangeMapHorizontalOuter: { inputMaxValue: 90.0, outputScale: 10.0 },
+                        rangeMapVerticalDown: { inputMaxValue: 90.0, outputScale: 10.0 },
+                        rangeMapVerticalUp: { inputMaxValue: 90.0, outputScale: 10.0 },
+                    },
+                    expressions: { preset: presetExpressions, custom: {} }
+                };
+            }
+            
+            async function convertAndDownload() {
+                try {
+                    log('Starting conversion process...');
+                    const newGltfJson = JSON.parse(JSON.stringify(gltfJson));
+                    
+                    // 1. Build the VRM extension metadata
+                    const vrmExt = buildVrmExtension();
+                    log('VRM metadata extension built.');
+
+                    // 2. *** CRITICAL FIX: RESTRUCTURE THE SKELETON AND SCENE GRAPH ***
+                    if (newGltfJson.skins && newGltfJson.skins.length > 0) {
+                        const hipsNodeIndex = vrmExt.humanoid.humanBones.hips?.node;
+                        if (hipsNodeIndex === undefined) {
+                            throw new Error("The 'Hips' bone is required but has not been mapped. The skeleton cannot be rooted.");
+                        }
+                        log(`User mapped Hips to node index: ${hipsNodeIndex}.`);
+
+                        // Create a lookup for parent-child relationships
+                        const nodeParents = {};
+                        newGltfJson.nodes.forEach((node, parentIndex) => {
+                            if (node.children) {
+                                node.children.forEach(childIndex => {
+                                    nodeParents[childIndex] = parentIndex;
+                                });
+                            }
+                        });
+
+                        // Find the true root of the skeleton by walking up from the hips
+                        let skeletonRootNodeIndex = hipsNodeIndex;
+                        let current = hipsNodeIndex;
+                        while (nodeParents[current] !== undefined) {
+                            const parent = nodeParents[current];
+                            // The root is the highest ancestor that is still part of the skin
+                            if (newGltfJson.skins[0].joints.includes(parent)) {
+                                skeletonRootNodeIndex = parent;
+                                current = parent;
+                            } else {
+                                break; // Stop if the parent is not a joint (e.g., the scene itself)
+                            }
+                        }
+                        log(`Calculated true skeleton root at node index: ${skeletonRootNodeIndex} (${newGltfJson.nodes[skeletonRootNodeIndex].name || 'unnamed'}).`);
+
+                        // Update all skins to point to this single root
+                        newGltfJson.skins.forEach((skin, index) => {
+                            log(`Updating skin ${index} skeleton root to node ${skeletonRootNodeIndex}.`);
+                            skin.skeleton = skeletonRootNodeIndex;
+                        });
+
+                        // --- FIX: Attach mesh nodes to skeleton root and set their skin property ---
+                        // Find all mesh nodes that use a skin
+                        const meshNodesWithSkin = [];
+                        newGltfJson.nodes.forEach((node, nodeIndex) => {
+                            if (typeof node.mesh === 'number' && typeof node.skin === 'number') {
+                                meshNodesWithSkin.push(nodeIndex);
+                            }
+                        });
+                        // If no mesh nodes have skin property, try to infer and set it
+                        if (meshNodesWithSkin.length === 0) {
+                            // Assume all mesh nodes should use skin 0 if only one skin exists
+                            if (newGltfJson.skins.length === 1) {
+                                newGltfJson.nodes.forEach((node, nodeIndex) => {
+                                    if (typeof node.mesh === 'number' && node.skin === undefined) {
+                                        node.skin = 0;
+                                        meshNodesWithSkin.push(nodeIndex);
+                                    }
+                                });
+                            }
+                        }
+                        // Attach mesh nodes to skeleton root if not already a descendant
+                        const skeletonRootNode = newGltfJson.nodes[skeletonRootNodeIndex];
+                        if (!skeletonRootNode.children) skeletonRootNode.children = [];
+                        meshNodesWithSkin.forEach(meshNodeIndex => {
+                            // Check if mesh node is already a descendant of skeleton root
+                            let isDescendant = false;
+                            function checkDescendant(parentIdx) {
+                                const parent = newGltfJson.nodes[parentIdx];
+                                if (parent.children && parent.children.includes(meshNodeIndex)) {
+                                    isDescendant = true;
+                                    return;
+                                }
+                                if (parent.children) {
+                                    parent.children.forEach(childIdx => checkDescendant(childIdx));
+                                }
+                            }
+                            checkDescendant(skeletonRootNodeIndex);
+                            if (!isDescendant) {
+                                // Remove mesh node from any other parent's children
+                                newGltfJson.nodes.forEach(node => {
+                                    if (node.children && node.children.includes(meshNodeIndex)) {
+                                        node.children = node.children.filter(idx => idx !== meshNodeIndex);
+                                    }
+                                });
+                                // Attach to skeleton root
+                                if (!skeletonRootNode.children.includes(meshNodeIndex)) {
+                                    skeletonRootNode.children.push(meshNodeIndex);
+                                    log(`Attached mesh node ${meshNodeIndex} to skeleton root node ${skeletonRootNodeIndex}.`);
+                                }
+                            }
+                        });
+
+                        // Clean the main scene: ensure only the skeleton root is present, not its children
+                        const allJointsInSkins = new Set(newGltfJson.skins.flatMap(s => s.joints));
+                        const sceneIndex = newGltfJson.scene || 0;
+                        const scene = newGltfJson.scenes[sceneIndex];
+                        log(`Restructuring scene ${sceneIndex}.`);
+                        const originalSceneNodes = new Set(scene.nodes);
+                        // Remove all bones from the scene root, except for the main skeleton root
+                        allJointsInSkins.forEach(jointIndex => {
+                            if (jointIndex !== skeletonRootNodeIndex) {
+                                if(originalSceneNodes.has(jointIndex)) {
+                                    log(`Removing child bone ${jointIndex} from scene root.`);
+                                    originalSceneNodes.delete(jointIndex);
+                                }
+                            }
+                        });
+                        // Ensure the main skeleton root is in the scene
+                        if (!originalSceneNodes.has(skeletonRootNodeIndex)) {
+                            log(`Adding skeleton root ${skeletonRootNodeIndex} to scene root.`);
+                            originalSceneNodes.add(skeletonRootNodeIndex);
+                        }
+                        scene.nodes = Array.from(originalSceneNodes);
+                        log(`Final scene nodes: [${scene.nodes.join(', ')}].`);
+
+                    } else {
+                        log('Warning: No skins found in the GLTF file. The model may not animate.', true);
+                    }
+                    
+                    // 3. Add the VRM extension to the GLTF JSON
+                    if (!newGltfJson.extensions) newGltfJson.extensions = {};
+                    newGltfJson.extensions.VRMC_vrm = vrmExt;
+                    if (!newGltfJson.extensionsUsed) newGltfJson.extensionsUsed = [];
+                    if (!newGltfJson.extensionsUsed.includes('VRMC_vrm')) {
+                        newGltfJson.extensionsUsed.push('VRMC_vrm');
+                    }
+                    log('Added VRMC_vrm extension to GLTF.');
+
+                    // 4. Repack the GLB file
+                    const outputGlb = packGlb(newGltfJson, gltfBuffer);
+                    log('Repacked data into new GLB file.');
+
+                    // 5. Trigger download
+                    const blob = new Blob([outputGlb], { type: 'model/gltf-binary' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${fileNameDisplay.textContent.replace(/\.glb$/i, '')}.vrm`;
+                    document.body.appendChild(a);
+a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    log('Conversion complete! Your VRM file has been downloaded.');
+                } catch (error) {
+                    log(`Conversion failed: ${error.message}`, true);
+                }
+            }
+            
+            function packGlb(json, buffer) {
+                const jsonString = JSON.stringify(json);
+                const jsonChunkData = new TextEncoder().encode(jsonString);
+                const paddedJsonLength = Math.ceil(jsonChunkData.length / 4) * 4;
+                const jsonPadding = paddedJsonLength - jsonChunkData.length;
+                const paddedJsonChunk = new Uint8Array(paddedJsonLength);
+                paddedJsonChunk.set(jsonChunkData);
+                for (let i = 0; i < jsonPadding; i++) paddedJsonChunk[jsonChunkData.length + i] = 0x20;
+                const hasBuffer = buffer && buffer.byteLength > 0;
+                const paddedBinLength = hasBuffer ? Math.ceil(buffer.byteLength / 4) * 4 : 0;
+                const totalLength = 12 + 8 + paddedJsonLength + (hasBuffer ? 8 + paddedBinLength : 0);
+                const outputBuffer = new ArrayBuffer(totalLength);
+                const dataView = new DataView(outputBuffer);
+                dataView.setUint32(0, 0x46546C67, true);
+                dataView.setUint32(4, 2, true);
+                dataView.setUint32(8, totalLength, true);
+                let offset = 12;
+                dataView.setUint32(offset, paddedJsonLength, true);
+                dataView.setUint32(offset + 4, 0x4E4F534A, true);
+                new Uint8Array(outputBuffer, offset + 8).set(paddedJsonChunk);
+                offset += 8 + paddedJsonLength;
+                if (hasBuffer) {
+                    dataView.setUint32(offset, paddedBinLength, true);
+                    dataView.setUint32(offset + 4, 0x004E4942, true);
+                    new Uint8Array(outputBuffer, offset + 8).set(new Uint8Array(buffer));
+                }
+                return outputBuffer;
+            }
+        });
+    </script>
+
+</body>
+</html>
