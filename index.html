@@ -304,7 +304,8 @@
                     </div>
                      <div class="button-group">
                         <button id="prev-to-step-3" class="btn-secondary">Previous</button>
-                        <button id="convert-and-download" class="btn-success">Convert & Download</button>
+                        <button id="convert-and-download" class="btn-success" type="button">Convert & Download (VRM 1.0)</button>
+                        <button id="convert-and-download-vrm0" class="btn-primary" type="button">Convert & Download (VRM 0.x)</button>
                     </div>
                 </div>
             </div>
@@ -321,8 +322,7 @@
             // --- STATE MANAGEMENT ---
             let gltfJson = null;
             let gltfBuffer = null;
-            let nodeNames = {};
-            let morphTargetNames = [];
+            let originalFileName = 'model.glb';
 
             // --- DOM ELEMENTS ---
             const fileInput = document.getElementById('file-upload');
@@ -336,6 +336,7 @@
             const nextBtn4 = document.getElementById('next-to-step-4');
             const prevBtn3 = document.getElementById('prev-to-step-3');
             const convertBtn = document.getElementById('convert-and-download');
+            const convertBtnVrm0 = document.getElementById('convert-and-download-vrm0');
             const boneMappingGrid = document.getElementById('bone-mapping-grid');
             const expressionMappingGrid = document.getElementById('expression-mapping-grid');
 
@@ -379,6 +380,7 @@
             nextBtn4.addEventListener('click', () => goToStep(4));
             prevBtn3.addEventListener('click', () => goToStep(3));
             convertBtn.addEventListener('click', convertAndDownload);
+            convertBtnVrm0.addEventListener('click', convertAndDownloadVrm0);
             fileInput.addEventListener('change', handleFileSelect);
 
             // --- FUNCTION DEFINITIONS ---
@@ -403,6 +405,7 @@
                     log('Error: Please upload a .glb file.', true);
                     return;
                 }
+                originalFileName = file.name;
                 fileNameDisplay.textContent = file.name;
                 log(`Selected file: ${file.name}`);
                 const reader = new FileReader();
@@ -413,6 +416,7 @@
                         log('GLB file parsed successfully.');
                     } catch (error) {
                         log(`Error parsing GLB: ${error.message}`, true);
+                        console.error(error);
                         nextBtn2.disabled = true;
                     }
                 };
@@ -442,8 +446,7 @@
             function populateUIFromGltf() {
                 if (!gltfJson) return;
                 
-                // *** Smarter Bone Filtering: Only show nodes that are part of a skin ***
-                nodeNames = {};
+                let nodeNames = {};
                 const jointIndices = new Set();
                 if (gltfJson.skins) {
                     gltfJson.skins.forEach(skin => skin.joints.forEach(jointIndex => jointIndices.add(jointIndex)));
@@ -458,7 +461,6 @@
                         });
                         log(`Found ${jointIndices.size} bones from skins to map.`);
                     } else {
-                        // Fallback for models without skins but with nodes
                         gltfJson.nodes.forEach((node, index) => {
                             nodeNames[index] = node.name || `Node ${index}`;
                         });
@@ -483,7 +485,7 @@
                     boneMappingGrid.appendChild(item);
                 });
 
-                morphTargetNames = [];
+                let morphTargetNames = [];
                 if (gltfJson.meshes) {
                     for (const mesh of gltfJson.meshes) {
                         if (mesh.primitives?.[0].extras?.targetNames) {
@@ -509,6 +511,175 @@
                     item.append(label, select);
                     expressionMappingGrid.appendChild(item);
                 });
+            }
+
+            // --- VRM 0.x EXTENSION BUILDER ---
+            function buildVrm0Extension() {
+                const humanBones = [];
+                boneMappingGrid.querySelectorAll('select').forEach(select => {
+                    if (select.value) {
+                        humanBones.push({ bone: select.dataset.vrmBone, node: parseInt(select.value, 10) });
+                    }
+                });
+                for (const bone of VRM_HUMANOID_BONES) {
+                    if (bone.required && !humanBones.find(b => b.bone === bone.name)) throw new Error(`Required bone "${bone.name}" is not assigned.`);
+                }
+                // VRM 0.x blendShapeMaster
+                const blendShapeGroups = [];
+                expressionMappingGrid.querySelectorAll('select').forEach(select => {
+                    if (select.value) {
+                        const presetName = select.dataset.vrmExpression;
+                        const morphIndex = parseInt(select.value, 10);
+                        let meshIndex = -1;
+                        if (gltfJson.nodes) {
+                            meshIndex = gltfJson.nodes.findIndex(node => node.mesh !== undefined && gltfJson.meshes[node.mesh]?.primitives?.[0].extras?.targetNames);
+                        }
+                        if (meshIndex === -1) return;
+                        blendShapeGroups.push({
+                            name: presetName,
+                            presetName: presetName,
+                            binds: [{ mesh: gltfJson.nodes[meshIndex].mesh, index: morphIndex, weight: 100 }],
+                            materialValues: [],
+                        });
+                    }
+                });
+                return {
+                    exporterVersion: "1.0",
+                    specVersion: "0.0",
+                    meta: {
+                        title: document.getElementById('meta-name').value || 'Unnamed',
+                        version: "1.0",
+                        author: document.getElementById('meta-author').value || 'Unknown',
+                        licenseName: "Other",
+                        // VRM 0.x meta fields can be expanded as needed
+                    },
+                    humanoid: {
+                        humanBones,
+                        // optional: armStretch, legStretch, upperArmTwist, lowerArmTwist, upperLegTwist, lowerLegTwist, feetSpacing, hasTranslationDoF
+                    },
+                    firstPerson: {
+                        firstPersonBone: humanBones.find(b => b.bone === 'head')?.node ?? 0,
+                        meshAnnotations: [],
+                    },
+                    blendShapeMaster: {
+                        blendShapeGroups
+                    },
+                    secondaryAnimation: {
+                        boneGroups: [],
+                        colliderGroups: []
+                    },
+                    // VRM 0.x does not have lookAt or expressions
+                };
+            }
+
+            // --- VRM 0.x EXPORT FUNCTION ---
+            async function convertAndDownloadVrm0() {
+                try {
+                    log('Starting VRM 0.x conversion process...');
+                    const newGltfJson = JSON.parse(JSON.stringify(gltfJson));
+                    // 1. Build the VRM 0.x extension metadata
+                    const vrm0Ext = buildVrm0Extension();
+                    log('VRM 0.x metadata extension built.');
+                    // 2. Scene graph/skeleton logic: similar to VRM 1.0, but VRM 0.x is more forgiving
+                    if (newGltfJson.skins?.length > 0) {
+                        const hipsBone = vrm0Ext.humanoid.humanBones.find(b => b.bone === 'hips');
+                        if (!hipsBone) throw new Error("The 'Hips' bone is required but not mapped. Cannot process skeleton.");
+                        // Find skeleton root as in VRM 1.0
+                        const nodeParents = {};
+                        newGltfJson.nodes.forEach((node, parentIndex) => {
+                            if (node.children) node.children.forEach(childIndex => nodeParents[childIndex] = parentIndex);
+                        });
+                        let skeletonRootNodeIndex = hipsBone.node;
+                        while(nodeParents[skeletonRootNodeIndex] !== undefined) {
+                            skeletonRootNodeIndex = nodeParents[skeletonRootNodeIndex];
+                        }
+                        newGltfJson.skins.forEach(skin => { skin.skeleton = skeletonRootNodeIndex; });
+                        // Rebuild scene root nodes
+                        const childNodes = new Set();
+                        newGltfJson.nodes.forEach(node => {
+                            if (node.children) node.children.forEach(childIndex => childNodes.add(childIndex));
+                        });
+                        const newSceneNodes = newGltfJson.nodes
+                            .map((_, index) => index)
+                            .filter(index => !childNodes.has(index));
+                        const sceneIndex = newGltfJson.scene || 0;
+                        newGltfJson.scenes[sceneIndex].nodes = newSceneNodes;
+                        log(`VRM 0.x: Restructured scene ${sceneIndex}. Final root nodes: [${newSceneNodes.join(', ')}]`);
+                    } else {
+                        log('Warning: No skins found in the GLTF. The output may not be a valid animatable avatar.', true);
+                    }
+                    // 3. Add the VRM 0.x extension
+                    if (!newGltfJson.extensions) newGltfJson.extensions = {};
+                    newGltfJson.extensions.VRM = vrm0Ext;
+                    if (!newGltfJson.extensionsUsed) newGltfJson.extensionsUsed = [];
+                    if (!newGltfJson.extensionsUsed.includes('VRM')) newGltfJson.extensionsUsed.push('VRM');
+                    log('Added VRM 0.x extension to GLTF.');
+                    // 4. Repack the GLB file
+                    const outputGlb = packGlb(newGltfJson, gltfBuffer);
+                    log('Repacked data into new GLB file.');
+                    // 5. Trigger download
+                    const blob = new Blob([outputGlb], { type: 'model/gltf-binary' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${originalFileName.replace(/\.glb$/i, '')}_vrm0.vrm`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    log('VRM 0.x conversion complete! Your VRM file has been downloaded.');
+                } catch (error) {
+                    log(`VRM 0.x conversion failed: ${error.message}`, true);
+                    console.error(error);
+                }
+            }
+            
+            function packGlb(json, buffer) {
+                // Ensure there are no empty properties that can cause issues
+                const jsonString = JSON.stringify(json, (key, value) => (value === undefined || value === null) ? undefined : value);
+                const jsonChunkData = new TextEncoder().encode(jsonString);
+                const paddedJsonLength = Math.ceil(jsonChunkData.length / 4) * 4;
+                const jsonPadding = paddedJsonLength - jsonChunkData.length;
+                const jsonChunk = new Uint8Array(paddedJsonLength);
+                jsonChunk.set(jsonChunkData);
+                // Pad with spaces (0x20) as per GLB spec
+                for (let i = 0; i < jsonPadding; i++) jsonChunk[jsonChunkData.length + i] = 0x20; 
+
+                const hasBuffer = buffer && buffer.byteLength > 0;
+                let paddedBinLength = 0;
+                let binChunk = null;
+                if (hasBuffer) {
+                    const binPadding = (4 - (buffer.byteLength % 4)) % 4;
+                    paddedBinLength = buffer.byteLength + binPadding;
+                    binChunk = new Uint8Array(paddedBinLength);
+                    binChunk.set(new Uint8Array(buffer));
+                    // Pad with zeros (0x00)
+                }
+
+                const totalLength = 12 + (8 + paddedJsonLength) + (hasBuffer ? (8 + paddedBinLength) : 0);
+                const outputBuffer = new ArrayBuffer(totalLength);
+                const dataView = new DataView(outputBuffer);
+                let offset = 0;
+                
+                // Header
+                dataView.setUint32(offset, 0x46546C67, true); offset += 4; // magic
+                dataView.setUint32(offset, 2, true); offset += 4; // version
+                dataView.setUint32(offset, totalLength, true); offset += 4; // length
+
+                // JSON Chunk
+                dataView.setUint32(offset, paddedJsonLength, true); offset += 4;
+                dataView.setUint32(offset, 0x4E4F534A, true); offset += 4; // chunkType 'JSON'
+                new Uint8Array(outputBuffer, offset).set(jsonChunk);
+                offset += paddedJsonLength;
+                
+                // BIN Chunk
+                if (hasBuffer) {
+                    dataView.setUint32(offset, paddedBinLength, true); offset += 4;
+                    dataView.setUint32(offset, 0x004E4942, true); offset += 4; // chunkType 'BIN'
+                    new Uint8Array(outputBuffer, offset).set(binChunk);
+                }
+                
+                return outputBuffer;
             }
 
             function buildVrmExtension() {
@@ -538,7 +709,8 @@
                         };
                     }
                 });
-                return {
+
+                const vrmExt = {
                     specVersion: "1.0",
                     meta: {
                         name: document.getElementById('meta-name').value || 'Unnamed',
@@ -546,12 +718,15 @@
                         authors: [document.getElementById('meta-author').value || 'Unknown'],
                         licenseUrl: document.getElementById('meta-license').value,
                         avatarPermission: document.getElementById('meta-avatarPermission').value,
-                        allowExcessivelyViolentUsage: false, allowExcessivelySexualUsage: false, commercialUsage: "personal",
+                        allowExcessivelyViolentUsage: false, allowExcessivelySexualUsage: false, 
+                        commercialUsage: "personalNonProfit", // FIX: Use a valid default
                         allowPoliticalOrReligiousUsage: false, allowAntisocialOrHateUsage: false, creditNotation: "required",
                         allowRedistribution: false, modification: "prohibited",
                     },
                     humanoid: { humanBones },
-                    firstPerson: { meshAnnotations: [] },
+                    firstPerson: {
+                        // meshAnnotations will be removed later if empty
+                    },
                     lookAt: {
                         offsetFromHeadBone: [0, 0.06, 0], type: "bone",
                         rangeMapHorizontalInner: { inputMaxValue: 90.0, outputScale: 10.0 },
@@ -561,138 +736,81 @@
                     },
                     expressions: { preset: presetExpressions, custom: {} }
                 };
+
+                // Omit firstPerson.meshAnnotations if it's not defined or empty.
+                if (!vrmExt.firstPerson.meshAnnotations || vrmExt.firstPerson.meshAnnotations.length === 0) {
+                    delete vrmExt.firstPerson.meshAnnotations;
+                }
+
+                return vrmExt;
             }
-            
+
             async function convertAndDownload() {
                 try {
                     log('Starting conversion process...');
+                    // Create a deep copy to avoid modifying the original state
                     const newGltfJson = JSON.parse(JSON.stringify(gltfJson));
                     
                     // 1. Build the VRM extension metadata
                     const vrmExt = buildVrmExtension();
                     log('VRM metadata extension built.');
 
-                    // 2. *** CRITICAL FIX: RESTRUCTURE THE SKELETON AND SCENE GRAPH ***
-                    if (newGltfJson.skins && newGltfJson.skins.length > 0) {
+                    // --- [START] SCENE GRAPH AND SKELETON RESTRUCTURING (THE CRITICAL FIX) ---
+                    if (newGltfJson.skins?.length > 0) {
                         const hipsNodeIndex = vrmExt.humanoid.humanBones.hips?.node;
                         if (hipsNodeIndex === undefined) {
-                            throw new Error("The 'Hips' bone is required but has not been mapped. The skeleton cannot be rooted.");
+                            throw new Error("The 'Hips' bone is required but not mapped. Cannot process skeleton.");
                         }
-                        log(`User mapped Hips to node index: ${hipsNodeIndex}.`);
 
-                        // Create a lookup for parent-child relationships
+                        // Create a map of each node to its parent
                         const nodeParents = {};
                         newGltfJson.nodes.forEach((node, parentIndex) => {
                             if (node.children) {
-                                node.children.forEach(childIndex => {
-                                    nodeParents[childIndex] = parentIndex;
-                                });
+                                node.children.forEach(childIndex => nodeParents[childIndex] = parentIndex);
                             }
                         });
 
-                        // Find the true root of the skeleton by walking up from the hips
+                        // Find the true root of the skeleton by walking up from the hips bone
                         let skeletonRootNodeIndex = hipsNodeIndex;
-                        let current = hipsNodeIndex;
-                        while (nodeParents[current] !== undefined) {
-                            const parent = nodeParents[current];
-                            // The root is the highest ancestor that is still part of the skin
-                            if (newGltfJson.skins[0].joints.includes(parent)) {
-                                skeletonRootNodeIndex = parent;
-                                current = parent;
-                            } else {
-                                break; // Stop if the parent is not a joint (e.g., the scene itself)
-                            }
+                        while(nodeParents[skeletonRootNodeIndex] !== undefined) {
+                            skeletonRootNodeIndex = nodeParents[skeletonRootNodeIndex];
                         }
-                        log(`Calculated true skeleton root at node index: ${skeletonRootNodeIndex} (${newGltfJson.nodes[skeletonRootNodeIndex].name || 'unnamed'}).`);
-
-                        // Update all skins to point to this single root
-                        newGltfJson.skins.forEach((skin, index) => {
-                            log(`Updating skin ${index} skeleton root to node ${skeletonRootNodeIndex}.`);
+                        log(`Determined skeleton root node: ${skeletonRootNodeIndex} (${newGltfJson.nodes[skeletonRootNodeIndex].name || 'unnamed'})`);
+                        
+                        // Update all skins to point to this single, correct skeleton root
+                        newGltfJson.skins.forEach((skin, i) => {
                             skin.skeleton = skeletonRootNodeIndex;
+                            log(`Updated skin ${i} to use skeleton root ${skeletonRootNodeIndex}.`);
                         });
-
-                        // --- FIX: Attach mesh nodes to skeleton root and set their skin property ---
-                        // Find all mesh nodes that use a skin
-                        const meshNodesWithSkin = [];
-                        newGltfJson.nodes.forEach((node, nodeIndex) => {
-                            if (typeof node.mesh === 'number' && typeof node.skin === 'number') {
-                                meshNodesWithSkin.push(nodeIndex);
-                            }
-                        });
-                        // If no mesh nodes have skin property, try to infer and set it
-                        if (meshNodesWithSkin.length === 0) {
-                            // Assume all mesh nodes should use skin 0 if only one skin exists
-                            if (newGltfJson.skins.length === 1) {
-                                newGltfJson.nodes.forEach((node, nodeIndex) => {
-                                    if (typeof node.mesh === 'number' && node.skin === undefined) {
-                                        node.skin = 0;
-                                        meshNodesWithSkin.push(nodeIndex);
-                                    }
-                                });
-                            }
-                        }
-                        // Attach mesh nodes to skeleton root if not already a descendant
-                        const skeletonRootNode = newGltfJson.nodes[skeletonRootNodeIndex];
-                        if (!skeletonRootNode.children) skeletonRootNode.children = [];
-                        meshNodesWithSkin.forEach(meshNodeIndex => {
-                            // Check if mesh node is already a descendant of skeleton root
-                            let isDescendant = false;
-                            function checkDescendant(parentIdx) {
-                                const parent = newGltfJson.nodes[parentIdx];
-                                if (parent.children && parent.children.includes(meshNodeIndex)) {
-                                    isDescendant = true;
-                                    return;
-                                }
-                                if (parent.children) {
-                                    parent.children.forEach(childIdx => checkDescendant(childIdx));
-                                }
-                            }
-                            checkDescendant(skeletonRootNodeIndex);
-                            if (!isDescendant) {
-                                // Remove mesh node from any other parent's children
-                                newGltfJson.nodes.forEach(node => {
-                                    if (node.children && node.children.includes(meshNodeIndex)) {
-                                        node.children = node.children.filter(idx => idx !== meshNodeIndex);
-                                    }
-                                });
-                                // Attach to skeleton root
-                                if (!skeletonRootNode.children.includes(meshNodeIndex)) {
-                                    skeletonRootNode.children.push(meshNodeIndex);
-                                    log(`Attached mesh node ${meshNodeIndex} to skeleton root node ${skeletonRootNodeIndex}.`);
-                                }
-                            }
-                        });
-
-                        // Clean the main scene: ensure only the skeleton root is present, not its children
-                        const allJointsInSkins = new Set(newGltfJson.skins.flatMap(s => s.joints));
+                        
+                        // Rebuild the main scene to be clean and valid for VRM
                         const sceneIndex = newGltfJson.scene || 0;
                         const scene = newGltfJson.scenes[sceneIndex];
-                        log(`Restructuring scene ${sceneIndex}.`);
-                        const originalSceneNodes = new Set(scene.nodes);
-                        // Remove all bones from the scene root, except for the main skeleton root
-                        allJointsInSkins.forEach(jointIndex => {
-                            if (jointIndex !== skeletonRootNodeIndex) {
-                                if(originalSceneNodes.has(jointIndex)) {
-                                    log(`Removing child bone ${jointIndex} from scene root.`);
-                                    originalSceneNodes.delete(jointIndex);
-                                }
-                            }
+                        
+                        // Get all nodes that are children of another node
+                        const childNodes = new Set();
+                        newGltfJson.nodes.forEach(node => {
+                            if (node.children) node.children.forEach(childIndex => childNodes.add(childIndex));
                         });
-                        // Ensure the main skeleton root is in the scene
-                        if (!originalSceneNodes.has(skeletonRootNodeIndex)) {
-                            log(`Adding skeleton root ${skeletonRootNodeIndex} to scene root.`);
-                            originalSceneNodes.add(skeletonRootNodeIndex);
-                        }
-                        scene.nodes = Array.from(originalSceneNodes);
-                        log(`Final scene nodes: [${scene.nodes.join(', ')}].`);
+                        
+                        // The new scene should only contain root nodes (nodes that are not a child of any other node)
+                        const newSceneNodes = newGltfJson.nodes
+                            .map((_, index) => index)
+                            .filter(index => !childNodes.has(index));
+                            
+                        scene.nodes = newSceneNodes;
+                        log(`Restructured scene ${sceneIndex}. Final root nodes: [${scene.nodes.join(', ')}]`);
 
                     } else {
-                        log('Warning: No skins found in the GLTF file. The model may not animate.', true);
+                        log('Warning: No skins found in the GLTF. The output may not be a valid animatable avatar.', true);
                     }
-                    
+                    // --- [END] SCENE GRAPH AND SKELETON RESTRUCTURING ---
+
                     // 3. Add the VRM extension to the GLTF JSON
                     if (!newGltfJson.extensions) newGltfJson.extensions = {};
                     newGltfJson.extensions.VRMC_vrm = vrmExt;
+                    
+                    // FIX: Safely add 'VRMC_vrm' to extensionsUsed without removing others
                     if (!newGltfJson.extensionsUsed) newGltfJson.extensionsUsed = [];
                     if (!newGltfJson.extensionsUsed.includes('VRMC_vrm')) {
                         newGltfJson.extensionsUsed.push('VRMC_vrm');
@@ -708,44 +826,16 @@
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `${fileNameDisplay.textContent.replace(/\.glb$/i, '')}.vrm`;
+                    a.download = `${originalFileName.replace(/\.glb$/i, '')}.vrm`;
                     document.body.appendChild(a);
-a.click();
+                    a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                     log('Conversion complete! Your VRM file has been downloaded.');
                 } catch (error) {
                     log(`Conversion failed: ${error.message}`, true);
+                    console.error(error);
                 }
-            }
-            
-            function packGlb(json, buffer) {
-                const jsonString = JSON.stringify(json);
-                const jsonChunkData = new TextEncoder().encode(jsonString);
-                const paddedJsonLength = Math.ceil(jsonChunkData.length / 4) * 4;
-                const jsonPadding = paddedJsonLength - jsonChunkData.length;
-                const paddedJsonChunk = new Uint8Array(paddedJsonLength);
-                paddedJsonChunk.set(jsonChunkData);
-                for (let i = 0; i < jsonPadding; i++) paddedJsonChunk[jsonChunkData.length + i] = 0x20;
-                const hasBuffer = buffer && buffer.byteLength > 0;
-                const paddedBinLength = hasBuffer ? Math.ceil(buffer.byteLength / 4) * 4 : 0;
-                const totalLength = 12 + 8 + paddedJsonLength + (hasBuffer ? 8 + paddedBinLength : 0);
-                const outputBuffer = new ArrayBuffer(totalLength);
-                const dataView = new DataView(outputBuffer);
-                dataView.setUint32(0, 0x46546C67, true);
-                dataView.setUint32(4, 2, true);
-                dataView.setUint32(8, totalLength, true);
-                let offset = 12;
-                dataView.setUint32(offset, paddedJsonLength, true);
-                dataView.setUint32(offset + 4, 0x4E4F534A, true);
-                new Uint8Array(outputBuffer, offset + 8).set(paddedJsonChunk);
-                offset += 8 + paddedJsonLength;
-                if (hasBuffer) {
-                    dataView.setUint32(offset, paddedBinLength, true);
-                    dataView.setUint32(offset + 4, 0x004E4942, true);
-                    new Uint8Array(outputBuffer, offset + 8).set(new Uint8Array(buffer));
-                }
-                return outputBuffer;
             }
         });
     </script>
