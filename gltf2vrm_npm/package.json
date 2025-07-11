@@ -1,0 +1,30 @@
+{
+  "name": "gltf2vrm",
+  "version": "0.1.0",
+  "description": "Convert loaded GLTF models to VRM 0.x or 1.0 in memory (browser/Node.js)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "format": "prettier --write \"src/**/*.{ts,js}\"",
+    "lint": "eslint src --ext .ts,.js",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "gltf",
+    "vrm",
+    "three.js",
+    "avatar",
+    "converter"
+  ],
+  "author": "Justin Benito",
+  "license": "GPL 3.0",
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "prettier": "^3.0.0",
+    "eslint": "^8.0.0"
+  },
+  "peerDependencies": {
+    "three": ">=0.140.0"
+  }
+} 
