@@ -1,6 +1,6 @@
 {
   "name": "gltf2vrm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Convert loaded GLTF models to VRM 0.x or 1.0 in memory (browser/Node.js)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

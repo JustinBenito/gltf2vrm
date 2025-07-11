@@ -1,4 +1,4 @@
-# gltf-to-vrm
+# gltf to vrm
 
 Convert loaded GLTF models to VRM 0.x or 1.0 in memory (browser or Node.js). This package allows you to convert a loaded GLTF (from THREE.GLTFLoader or similar) to a VRM file buffer, with custom bone and blendshape mapping, and output a VRM GLB ready for use with three-vrm, UniVRM, and other tools.
 
