@@ -5,7 +5,7 @@ Convert loaded GLTF models to VRM 0.x or 1.0 in memory (browser or Node.js). Thi
 ## Installation
 
 ```
-npm install gltf-to-vrm
+npm install gltf2vrm
 ```
 
 You must also have `three` installed as a peer dependency.
@@ -14,7 +14,7 @@ You must also have `three` installed as a peer dependency.
 
 ```js
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { convertGLTFToVRM } from 'gltf-to-vrm';
+import { convertGLTFToVRM } from 'gltf2vrm';
 
 const loader = new GLTFLoader();
 loader.load('path/to/model.glb', (gltf) => {
@@ -53,6 +53,7 @@ See `examples/convert-gltf-to-vrm.ts` for a more detailed example. Uncomment and
 ### `convertGLTFToVRM(options): ArrayBuffer`
 
 **Options:**
+
 - `gltf` (required): The loaded GLTF object (output of `THREE.GLTFLoader`)
 - `boneMap` (required): Object mapping VRM bone names to GLTF node indices
 - `blendShapeMap` (optional): Object mapping VRM expression names to morph target indices
@@ -60,18 +61,22 @@ See `examples/convert-gltf-to-vrm.ts` for a more detailed example. Uncomment and
 - `version` (optional): `'1.0'` (default) or `'0.x'`
 
 **Returns:**
+
 - `ArrayBuffer` containing the VRM GLB
 
 ## Supported VRM Versions
+
 - VRM 1.0 (`VRMC_vrm` extension)
 - VRM 0.x (`VRM` extension)
 
 ## Requirements
+
 - `three` (peer dependency)
 - Modern JavaScript environment (ES2019+)
 - For Node.js: polyfills for `TextEncoder`/`TextDecoder` if not available
 
 ## Limitations
+
 - You must provide a valid bone map for your GLTF model
 - Only GLB (binary GLTF 2.0) input is supported
 - Some advanced VRM features (spring bones, lookAt, custom expressions) are not fully supported
@@ -79,4 +84,4 @@ See `examples/convert-gltf-to-vrm.ts` for a more detailed example. Uncomment and
 
 ## License
 
-GPL 3.0 License. See LICENSE for details. 
+GPL 3.0 License. See LICENSE for details.
